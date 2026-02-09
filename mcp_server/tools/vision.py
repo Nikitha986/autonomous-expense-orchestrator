@@ -2,11 +2,12 @@ import re
 import io
 import os
 import base64
-from typing import Dict
+from typing import Dict, Optional
 from PIL import Image, ImageEnhance, ImageFilter, UnidentifiedImageError
 import pytesseract
 import pdfplumber
 import numpy as np
+from datetime import datetime
 from dotenv import load_dotenv
 
 # PDF handling
@@ -303,26 +304,168 @@ def extract_vendor(text: str) -> str:
     return "UNKNOWN"
 
 
-def extract_date(text: str) -> str:
-    """Extract date with multiple formats."""
-    patterns = [
-        r"\b(\d{2})[/-](\d{2})[/-](\d{4})\s+\d{2}:\d{2}:\d{2}\b",  # DD/MM/YYYY HH:MM:SS
-        r"\b(\d{2})[/-](\d{2})[/-](\d{4})\b",  # DD/MM/YYYY or MM/DD/YYYY
-        r"\b(\d{4})[/-](\d{2})[/-](\d{2})\b",  # YYYY/MM/DD
-        r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}, \d{4}\b",  # Month DD, YYYY
-    ]
-    
-    for p in patterns:
-        m = re.search(p, text, re.IGNORECASE)
+def extract_employee_name(text: str) -> str:
+    """Heuristic extraction of employee name from receipt text.
+
+    Strategies:
+    - Look for labeled lines like 'Name:', 'Employee:', 'Passenger:'
+    - Fallback to the largest capitalized line near the top that is not the vendor
+    - Return None if not found
+    """
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    label_re = re.compile(r"(?:name|employee|passenger|paid to)[:\-\s]+(.+)", flags=re.IGNORECASE)
+    for line in lines[:12]:
+        m = label_re.search(line)
         if m:
-            return m.group(0)
-    
-    # Fallback: try to find any date-like pattern
-    m = re.search(r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", text)
+            candidate = m.group(1).strip()
+            if 3 <= len(candidate) <= 60:
+                return candidate.title()
+
+    # Fallback: look for a long capitalized word line (likely a person or organization)
+    for line in lines[:8]:
+        # ignore common headers
+        if line.lower() in ["receipt", "invoice", "bill", "total", "amount"]:
+            continue
+        letters = sum(c.isalpha() for c in line)
+        if letters / max(len(line), 1) > 0.5 and 3 <= len(line.split()) <= 4:
+            # If looks like a name, return title-cased
+            return line.title()
+
+    return None
+
+
+def extract_date(text: str) -> str:
+    """Extract date with multiple formats and heuristics.
+
+    Strategy:
+    - Look for labeled lines containing 'date', 'invoice date', 'bill date'.
+    - Try parsing with dateutil if available (dayfirst=True).
+    - Fall back to several common strptime patterns.
+    - Return ISO-formatted date (YYYY-MM-DD) or 'NA'.
+    """
+    if not text or not text.strip():
+        return "NA"
+
+    # Normalize whitespace and split into lines
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    # 1) Look for labeled date lines (e.g., 'Date: 12-11-2025' or 'Invoice Date 12/11/25')
+    # allow shorter/longer candidates after the label and accept a wider set of characters
+    label_re = re.compile(r"(invoice\s*date|bill\s*date|date of issue|date)[:\s]*([\w\d\-/.,\s]{1,60})",
+                          flags=re.IGNORECASE)
+    for line in lines:
+        m = label_re.search(line)
+        if m:
+            candidate = m.group(2).strip()
+            parsed = _parse_date_string(candidate)
+            if parsed:
+                return parsed
+
+    # 2) Look for any date-like token in the text (prefer lines containing month names or separators)
+    month_re = re.compile(r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b", flags=re.IGNORECASE)
+
+    # broader token matcher: supports 12-11-2025, 12.11.2025, 12 11 2025, 2025-11-12
+    date_token_re = re.compile(r"\d{1,2}([./\-\s])\d{1,2}\1\d{2,4}")
+    iso_re = re.compile(r"\d{4}[./\-]\d{1,2}[./\-]\d{1,2}")
+
+    for line in lines:
+        if month_re.search(line) or date_token_re.search(line) or iso_re.search(line):
+            # try to extract a date substring using the best matching regex
+            m = date_token_re.search(line) or iso_re.search(line)
+            if m:
+                parsed = _parse_date_string(m.group(0))
+                if parsed:
+                    return parsed
+
+            # fallback: try to parse the whole line (handles '12 Nov 2025' etc.)
+            parsed = _parse_date_string(line)
+            if parsed:
+                return parsed
+
+    # 3) As a last resort, search entire text for any date-like pattern
+    # final attempt: search the whole text for broader date tokens
+    m = date_token_re.search(text) or iso_re.search(text)
     if m:
-        return m.group(0)
-    
+        parsed = _parse_date_string(m.group(0))
+        if parsed:
+            return parsed
+
+    # As a last-ditch, look for a 4-digit year and nearby numbers to assemble a date
+    m = re.search(r"(\d{1,2})[^\d]{1,3}(\d{1,2})[^\d]{1,3}(20\d{2})", text)
+    if m:
+        candidate = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+        parsed = _parse_date_string(candidate)
+        if parsed:
+            return parsed
+
+    # No date found
     return "NA"
+
+
+def _parse_date_string(s: str) -> Optional[str]:
+    """Try to parse a date string and return ISO date YYYY-MM-DD or None."""
+    if not s or not s.strip():
+        return None
+
+    s = s.strip()
+    # Remove common suffixes/words
+    s = re.sub(r"(st|nd|rd|th)\b", "", s, flags=re.IGNORECASE)
+    s = s.replace(".", "-")
+    s = s.replace(",", "")
+    s = s.replace("\u2013", "-")  # en-dash
+    s = s.strip()
+
+    # Try dateutil if available
+    try:
+        from dateutil import parser as dateutil_parser
+
+        try:
+            dt = dateutil_parser.parse(s, dayfirst=True, fuzzy=True)
+            return dt.date().isoformat()
+        except Exception:
+            pass
+    except Exception:
+        # dateutil not available — continue to manual parsing
+        pass
+
+    # Manual patterns (dayfirst preferred)
+    patterns = [
+        "%d-%m-%Y",
+        "%d/%m/%Y",
+        "%d-%m-%y",
+        "%d/%m/%y",
+        "%Y-%m-%d",
+        "%d %b %Y",
+        "%d %B %Y",
+        "%b %d %Y",
+        "%B %d %Y",
+    ]
+
+    for fmt in patterns:
+        try:
+            dt = datetime.strptime(s, fmt)
+            return dt.date().isoformat()
+        except Exception:
+            continue
+
+    # Try to extract numbers and reorder if possible (e.g., 12 11 2025)
+    nums = re.findall(r"\d{1,4}", s)
+    if len(nums) >= 3:
+        # heuristic: take last 3 numbers as D M Y or Y M D
+        for order in [(0,1,2), (2,1,0)]:
+            try:
+                d = int(nums[order[0]])
+                m = int(nums[order[1]])
+                y = int(nums[order[2]])
+                if y < 100:  # two-digit year
+                    y += 2000 if y < 70 else 1900
+                if 1 <= m <= 12 and 1 <= d <= 31 and 1900 <= y <= 2100:
+                    return datetime(y, m, d).date().isoformat()
+            except Exception:
+                continue
+
+    return None
 
 
 def calculate_confidence(amount: float, vendor: str, text: str) -> float:
@@ -378,6 +521,7 @@ def vision_agent(file_bytes: bytes) -> Dict:
     amount = 0.0
     date = "NA"
     claude_used = False
+    employee_name = None
 
     # 1️⃣ Try as image
     is_image = False
@@ -545,6 +689,13 @@ def vision_agent(file_bytes: bytes) -> Dict:
             vendor = extract_vendor(text_all)
             amount = extract_amount(text_all)
             date = extract_date(text_all)
+            # Try to extract employee name heuristically
+            try:
+                emp = extract_employee_name(text_all)
+                if emp:
+                    employee_name = emp
+            except Exception:
+                pass
             
             # If amount is too low (likely extraction error), try harder
             if amount < 50:
@@ -603,6 +754,7 @@ def vision_agent(file_bytes: bytes) -> Dict:
         "confidence": confidence,
         "text": text_all,
         "type": receipt_type,
+        "employee_name": employee_name,
     }
 
 

@@ -232,3 +232,60 @@ def get_expenses_by_report(report_id: int):
     cur.close()
     conn.close()
     return rows
+
+
+import json
+from datetime import datetime
+
+
+def _ensure_state_table(conn):
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS orchestrator_state (
+            thread_id TEXT PRIMARY KEY,
+            state_json JSONB,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+        )
+        """
+    )
+    conn.commit()
+    cur.close()
+
+
+def save_orchestrator_state(thread_id: str, state: dict):
+    if not thread_id:
+        return
+    conn = get_connection()
+    try:
+        _ensure_state_table(conn)
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO orchestrator_state (thread_id, state_json, updated_at) VALUES (%s, %s, now()) "
+            "ON CONFLICT (thread_id) DO UPDATE SET state_json = EXCLUDED.state_json, updated_at = EXCLUDED.updated_at",
+            (thread_id, json.dumps(state)),
+        )
+        conn.commit()
+        cur.close()
+    finally:
+        conn.close()
+
+
+def load_orchestrator_state(thread_id: str):
+    if not thread_id:
+        return None
+    conn = get_connection()
+    try:
+        _ensure_state_table(conn)
+        cur = conn.cursor()
+        cur.execute("SELECT state_json FROM orchestrator_state WHERE thread_id=%s", (thread_id,))
+        row = cur.fetchone()
+        cur.close()
+        if not row:
+            return None
+        try:
+            return json.loads(row[0]) if isinstance(row[0], str) else row[0]
+        except Exception:
+            return None
+    finally:
+        conn.close()

@@ -14,7 +14,6 @@ conn = psycopg2.connect(
 
 cur = conn.cursor()
 
-# Expense Reports Table (SRS Requirement: Track conversations + multi-user)
 cur.execute("""
 CREATE TABLE IF NOT EXISTS expense_reports (
     id SERIAL PRIMARY KEY,
@@ -30,7 +29,6 @@ CREATE TABLE IF NOT EXISTS expense_reports (
 );
 """)
 
-# Expenses Table (SRS Requirement: Compliance tracking + approval workflow)
 cur.execute("""
 CREATE TABLE IF NOT EXISTS expenses (
     id SERIAL PRIMARY KEY,
@@ -50,7 +48,6 @@ CREATE TABLE IF NOT EXISTS expenses (
 );
 """)
 
-# Manager/Employee Mapping (FR4 Requirement: Manager Mode)
 cur.execute("""
 CREATE TABLE IF NOT EXISTS employee_manager (
     id SERIAL PRIMARY KEY,
@@ -62,7 +59,6 @@ CREATE TABLE IF NOT EXISTS employee_manager (
 );
 """)
 
-# Approval History (Audit Trail)
 cur.execute("""
 CREATE TABLE IF NOT EXISTS approval_history (
     id SERIAL PRIMARY KEY,
@@ -74,7 +70,7 @@ CREATE TABLE IF NOT EXISTS approval_history (
 );
 """)
 
-# Create indexes for performance
+
 cur.execute("CREATE INDEX IF NOT EXISTS idx_trip_name ON expense_reports(trip_name);")
 cur.execute("CREATE INDEX IF NOT EXISTS idx_employee ON expense_reports(employee_name);")
 cur.execute("CREATE INDEX IF NOT EXISTS idx_thread ON expense_reports(thread_id);")

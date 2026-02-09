@@ -119,9 +119,6 @@ TOOLS = {
 }
 
 
-# -------------------------------------------------
-# TOOL HANDLERS (MCP Implementation)
-# -------------------------------------------------
 
 @server.list_tools()
 async def list_tools() -> list[dict]:
@@ -162,9 +159,7 @@ async def call_tool(name: str, arguments: dict) -> Any:
         raise ValueError(f"Unknown tool: {name}")
 
 
-# -------------------------------------------------
-# HANDLER IMPLEMENTATIONS
-# -------------------------------------------------
+
 
 def handle_vision_extract(arguments: dict) -> dict:
     """Handle vision extraction tool call via MCP."""
@@ -300,11 +295,6 @@ def handle_db_get_trip_status(arguments: dict) -> dict:
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
-
-
-# -------------------------------------------------
-# SERVER STARTUP
-# -------------------------------------------------
 
 async def main():
     """Start the MCP server."""

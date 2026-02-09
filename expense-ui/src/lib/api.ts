@@ -8,7 +8,8 @@ const API_BASE = "http://127.0.0.1:8000";
  */
 export async function fileExpenses(
   prompt: string,
-  files: File[]
+  files: File[],
+  role?: string
 ) {
   const formData = new FormData();
   formData.append("prompt", prompt);
@@ -20,9 +21,13 @@ export async function fileExpenses(
   let res: Response;
 
   try {
+    const headers: Record<string, string> = {};
+    if (role) headers["X-User-Role"] = role;
+
     res = await fetch(`${API_BASE}/prompt`, {
       method: "POST",
       body: formData,
+      headers,
     });
   } catch (err) {
     throw new Error("Backend not reachable. Is FastAPI running?");
@@ -67,7 +72,7 @@ export async function approveExpense(expenseId: number) {
   try {
     res = await fetch(
       `${API_BASE}/manager/approve?expense_id=${expenseId}`,
-      { method: "POST" }
+      { method: "POST", headers: { "X-User-Role": "manager" } }
     );
   } catch {
     throw new Error("Backend not reachable while approving expense");
@@ -76,6 +81,26 @@ export async function approveExpense(expenseId: number) {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || "Failed to approve expense");
+  }
+
+  return res.json();
+}
+
+export async function rejectExpense(expenseId: number) {
+  let res: Response;
+
+  try {
+    res = await fetch(
+      `${API_BASE}/manager/reject?expense_id=${expenseId}`,
+      { method: "POST", headers: { "X-User-Role": "manager" } }
+    );
+  } catch {
+    throw new Error("Backend not reachable while rejecting expense");
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "Failed to reject expense");
   }
 
   return res.json();

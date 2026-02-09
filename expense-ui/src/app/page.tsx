@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fileExpenses, getStatus } from "@/src/lib/api";
+import { fileExpenses, getStatus, approveExpense, rejectExpense } from "@/src/lib/api";
 
 type Message = {
   role: "user" | "assistant";
@@ -21,6 +21,7 @@ type ExtractionDetail = {
   type: string;
   confidence: number;
   status: string;
+  employee_name?: string | null;
 };
 
 export default function Home() {
@@ -31,6 +32,7 @@ export default function Home() {
   const [polling, setPolling] = useState(false);
   const [allowPDF, setAllowPDF] = useState(true);
   const [extractionDetails, setExtractionDetails] = useState<ExtractionDetail[]>([]);
+  const [isManager, setIsManager] = useState(false);
 
   // Clear everything
   function clearAll() {
@@ -71,27 +73,65 @@ export default function Home() {
     });
   }
 
-  // Chat submit
+  // Prompt submit handler
   async function handlePrompt() {
     if (!prompt.trim()) return;
 
     setMessages((m) => [...m, { role: "user", text: prompt }]);
 
     try {
-      if (files.length === 0) {
-        reply("Please attach receipt files first.");
-        return;
-      }
-
       const res = await fileExpenses(
         prompt,
-        files.map(f => f.file)
+        files.map(f => f.file),
+        isManager ? "manager" : undefined
       );
+
+      // Handle manager pending list responses
+      if (res.pending && Array.isArray(res.pending)) {
+        const details = res.pending.map((p: any) => ({
+          receipt_id: p.expense_id,
+          vendor: p.vendor ?? null,
+          amount: p.amount ?? null,
+          date: null,
+          type: "db",
+          confidence: 1.0,
+          status: p.status ?? "PENDING",
+          employee_name: p.employee ?? null,
+          _show_ocr: false,
+        }));
+        setExtractionDetails(details);
+      }
 
       if (res.messages) {
         res.messages.forEach((m: string) =>
           reply(m.replace(/^Agent:\s*/, ""))
         );
+      }
+
+      // Support prompt-router direct responses (e.g., status queries)
+      if (res.message) {
+        reply(res.message.replace(/^Agent:\s*/, ""));
+      }
+
+      if (res.trip_status) {
+        const ts = res.trip_status;
+        reply(`Trip: ${ts.trip} — status: ${ts.status} — total ${ts.summary.total}, approved ${ts.summary.approved}, pending ${ts.summary.pending}`);
+        // Populate detailed expenses view so user can inspect each item
+        if (ts.expenses && Array.isArray(ts.expenses)) {
+          const details = ts.expenses.map((e: any) => ({
+            receipt_id: e.expense_id,
+            vendor: e.vendor || null,
+            amount: e.amount || null,
+            date: e.expense_date || null,
+            type: "db",
+            confidence: 1.0,
+            status: (e.approved ? "APPROVED" : (e.status || "PENDING")),
+            ocr_text: e.ocr_text || null,
+            _show_ocr: false,
+          }));
+
+          setExtractionDetails(details);
+        }
       }
 
       // Store extraction details
@@ -163,6 +203,15 @@ export default function Home() {
           onChange={(e) => setAllowPDF(e.target.checked)}
         />
         Allow PDF receipts
+      </label>
+
+      <label className="flex items-center gap-2 mt-2 text-sm">
+        <input
+          type="checkbox"
+          checked={isManager}
+          onChange={(e) => setIsManager(e.target.checked)}
+        />
+        Act as manager (send manager header)
       </label>
 
       {/* File input */}
@@ -257,6 +306,77 @@ export default function Home() {
                     <span className="text-gray-400">Date:</span>
                     <div className="font-semibold">{detail.date || "—"}</div>
                   </div>
+                    {/* Only show manager action buttons for amounts >= 5000 */}
+                    {(detail.amount ?? 0) >= 5000 ? (
+                      <div className="col-span-2 mt-2 flex gap-2">
+                        <button
+                          onClick={async () => {
+                            try {
+                              // Approve
+                              // @ts-ignore
+                              const res = await approveExpense(detail.receipt_id);
+                              reply(res.message || "Approved");
+                              setExtractionDetails((prev) =>
+                                prev.map((p) =>
+                                  p.receipt_id === detail.receipt_id
+                                    ? { ...p, status: "APPROVED" }
+                                    : p
+                                )
+                              );
+                            } catch (e: any) {
+                              reply("❌ Approval failed: " + e.message);
+                            }
+                          }}
+                          className="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-xs"
+                        >
+                          Approve
+                        </button>
+
+                        <button
+                          onClick={async () => {
+                            try {
+                              // @ts-ignore
+                              const res = await rejectExpense(detail.receipt_id);
+                              reply(res.message || "Rejected");
+                              setExtractionDetails((prev) =>
+                                prev.map((p) =>
+                                  p.receipt_id === detail.receipt_id
+                                    ? { ...p, status: "REJECTED" }
+                                    : p
+                                )
+                              );
+                            } catch (e: any) {
+                              reply("❌ Rejection failed: " + e.message);
+                            }
+                          }}
+                          className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded text-xs"
+                        >
+                          Reject
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            // Toggle OCR text visibility
+                            setExtractionDetails((prev) =>
+                              prev.map((p) =>
+                                p.receipt_id === detail.receipt_id
+                                  ? { ...p, _show_ocr: !p._show_ocr }
+                                  : p
+                              )
+                            );
+                          }}
+                          className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-xs"
+                        >
+                          View OCR
+                        </button>
+                      </div>
+                    ) : null}
+                    {detail._show_ocr && (
+                      <div className="col-span-2 mt-2 text-xs text-gray-300 whitespace-pre-wrap">
+                        {/* @ts-ignore */}
+                        {detail.ocr_text || "(no OCR available)"}
+                      </div>
+                    )}
                 </div>
 
                 <div className="mt-2 text-xs">
