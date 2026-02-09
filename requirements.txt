@@ -1,9 +1,11 @@
 fastapi
 uvicorn
-psycopg2-binary
-python-multipart
+numpy
 pillow
 pytesseract
-pypdfium2
 pdfplumber
+pypdfium2
+psycopg2-binary
 langgraph
+langchain
+python-multipart
