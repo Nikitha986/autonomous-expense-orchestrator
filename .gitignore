@@ -1,0 +1,70 @@
+# --------------------
+# Python
+# --------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.env
+.env.*
+*.env
+
+# --------------------
+# Virtual Environment
+# --------------------
+venv/
+.venv/
+env/
+ENV/
+
+# --------------------
+# OS / Editor
+# --------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --------------------
+# Logs & Temp
+# --------------------
+*.log
+*.tmp
+
+# --------------------
+# Database / Local State
+# --------------------
+*.sqlite3
+*.db
+
+# --------------------
+# Tests cache
+# --------------------
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --------------------
+# Node / Frontend (if present)
+# --------------------
+node_modules/
+dist/
+build/
+
+# --------------------
+# Uploaded files / receipts
+# --------------------
+uploads/
+receipts/
+*.pdf
+*.jpg
+*.jpeg
+*.png
+
+# --------------------
+# Secrets (VERY IMPORTANT)
+# --------------------
+.env
+.env.local
+.env.production
