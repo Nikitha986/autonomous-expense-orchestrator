@@ -22,6 +22,7 @@ type ExtractionDetail = {
   confidence: number;
   status: string;
   employee_name?: string | null;
+  _show_ocr?: boolean;
 };
 
 export default function Home() {

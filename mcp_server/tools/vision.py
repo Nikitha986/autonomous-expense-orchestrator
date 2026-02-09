@@ -350,8 +350,6 @@ def extract_date(text: str) -> str:
     # Normalize whitespace and split into lines
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
-    # 1) Look for labeled date lines (e.g., 'Date: 12-11-2025' or 'Invoice Date 12/11/25')
-    # allow shorter/longer candidates after the label and accept a wider set of characters
     label_re = re.compile(r"(invoice\s*date|bill\s*date|date of issue|date)[:\s]*([\w\d\-/.,\s]{1,60})",
                           flags=re.IGNORECASE)
     for line in lines:
@@ -362,29 +360,25 @@ def extract_date(text: str) -> str:
             if parsed:
                 return parsed
 
-    # 2) Look for any date-like token in the text (prefer lines containing month names or separators)
     month_re = re.compile(r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b", flags=re.IGNORECASE)
 
-    # broader token matcher: supports 12-11-2025, 12.11.2025, 12 11 2025, 2025-11-12
+
     date_token_re = re.compile(r"\d{1,2}([./\-\s])\d{1,2}\1\d{2,4}")
     iso_re = re.compile(r"\d{4}[./\-]\d{1,2}[./\-]\d{1,2}")
 
     for line in lines:
         if month_re.search(line) or date_token_re.search(line) or iso_re.search(line):
-            # try to extract a date substring using the best matching regex
+
             m = date_token_re.search(line) or iso_re.search(line)
             if m:
                 parsed = _parse_date_string(m.group(0))
                 if parsed:
                     return parsed
 
-            # fallback: try to parse the whole line (handles '12 Nov 2025' etc.)
             parsed = _parse_date_string(line)
             if parsed:
                 return parsed
 
-    # 3) As a last resort, search entire text for any date-like pattern
-    # final attempt: search the whole text for broader date tokens
     m = date_token_re.search(text) or iso_re.search(text)
     if m:
         parsed = _parse_date_string(m.group(0))
@@ -409,7 +403,7 @@ def _parse_date_string(s: str) -> Optional[str]:
         return None
 
     s = s.strip()
-    # Remove common suffixes/words
+
     s = re.sub(r"(st|nd|rd|th)\b", "", s, flags=re.IGNORECASE)
     s = s.replace(".", "-")
     s = s.replace(",", "")
@@ -646,7 +640,7 @@ def vision_agent(file_bytes: bytes) -> Dict:
             except Exception as e:
                 print(f"⚠️ OCR failed on page {idx+1}: {e}")
     
-    # 4B️⃣ FALLBACK: Tesseract OCR if Claude didn't work
+
     elif not text_all and images:
         for image in images:
             mode = detect_image_mode(image)

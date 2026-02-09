@@ -78,9 +78,6 @@ def parse_prompt(text: str) -> Dict[str, Any]:
     }
 
 
-# -------------------------------------------------
-# BUILD STATUS RESPONSE
-# -------------------------------------------------
 def _build_trip_status(trip_name: Optional[str]) -> Optional[Dict[str, Any]]:
     if not trip_name:
         return None
@@ -142,9 +139,6 @@ def _build_trip_status(trip_name: Optional[str]) -> Optional[Dict[str, Any]]:
     }
 
 
-# -------------------------------------------------
-# MAIN ROUTER
-# -------------------------------------------------
 def handle_prompt(
     prompt: str,
     receipts: List[bytes],
@@ -154,9 +148,8 @@ def handle_prompt(
     parsed = parse_prompt(prompt)
     intent = parsed["intent"]
 
-    # -----------------------------
     # FILE → Let LangGraph handle
-    # -----------------------------
+
     if intent == "upload_and_file":
         return {
             "handled": False,
@@ -164,9 +157,9 @@ def handle_prompt(
             "parsed": parsed,
         }
 
-    # -----------------------------
+
     # STATUS (NO FILES REQUIRED)
-    # -----------------------------
+
     if intent == "check_status":
         trip = parsed["slots"].get("trip")
         if trip:
@@ -274,9 +267,7 @@ def handle_prompt(
             },
         }
 
-    # -----------------------------
-    # MANAGER: APPROVE
-    # -----------------------------
+
     if intent == "manager_approve":
         if headers.get("x-user-role", "").lower() != "manager":
             return {
